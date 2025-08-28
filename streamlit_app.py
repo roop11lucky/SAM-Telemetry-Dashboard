@@ -12,11 +12,12 @@ st.set_page_config(layout="wide")
 st.title("📊 Unified SAM Telemetry Dashboard")
 
 # ---------------- Tabs ----------------
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔍 Operational View", 
     "💼 CXO View", 
     "🖥 Software Inventory & Security", 
-    "💰 Optimization & Savings"
+    "💰 Optimization & Savings",
+    "📝 Actionable Items"
 ])
 
 # ======================================================
@@ -209,3 +210,65 @@ with tab4:
         "Savings Potential ($)": [6000, 7200, 2000]
     })
     st.table(idle)
+
+# ======================================================
+# ACTIONABLE ITEMS
+# ======================================================
+with tab5:
+    st.subheader("📝 Actionable Items")
+
+    st.markdown("### Compliance Actions")
+    compliance_actions = pd.DataFrame({
+        "Action": [
+            "Reconcile 50 Oracle DB licenses",
+            "Remove 30 unauthorized Adobe installs"
+        ],
+        "Priority": ["High","Medium"],
+        "Owner": ["SAM Team","IT Security"]
+    })
+    st.table(compliance_actions)
+
+    st.markdown("### Cost Optimization Actions")
+    cost_actions = pd.DataFrame({
+        "Action": [
+            "Reharvest 120 inactive M365 licenses",
+            "Downgrade 200 users to Basic edition",
+            "Consolidate Zoom into Teams"
+        ],
+        "Priority": ["High","High","Medium"],
+        "Owner": ["Procurement","IT Ops","Procurement"]
+    })
+    st.table(cost_actions)
+
+    st.markdown("### Security Actions")
+    security_actions = pd.DataFrame({
+        "Action": [
+            "Upgrade 80 Win7 devices",
+            "Patch Oracle 19c installations"
+        ],
+        "Priority": ["High","High"],
+        "Owner": ["IT Ops","DBA Team"]
+    })
+    st.table(security_actions)
+
+    st.markdown("### Renewal Actions")
+    renewal_actions = pd.DataFrame({
+        "Action": [
+            "Negotiate Salesforce renewal (Q2)",
+            "Evaluate Oracle contract renewal"
+        ],
+        "Priority": ["Medium","High"],
+        "Owner": ["Procurement","CIO Office"]
+    })
+    st.table(renewal_actions)
+
+    st.markdown("### Governance Actions")
+    governance_actions = pd.DataFrame({
+        "Action": [
+            "Create policy for auto-reclaim unused >90d",
+            "Enforce SaaS assignment approval"
+        ],
+        "Priority": ["Medium","Medium"],
+        "Owner": ["Governance","IT Ops"]
+    })
+    st.table(governance_actions)
