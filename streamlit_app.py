@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 st.set_page_config(layout="wide")
-st.title("📊 Unified SAM Telemetry Dashboard")
+st.title("📊 Unified Software Asset Management Telemetry Dashboard")
 
 @st.cache_data
 def load_data():
@@ -279,7 +279,7 @@ with tab5:
             "Remove 30 unauthorized Adobe installs"
         ],
         "Priority": ["High","Medium"],
-        "Owner": ["SAM Team","IT Security"]
+        "Owner": ["Software Asset Management Team","IT Security"]
     })
     st.table(compliance_actions)
 
