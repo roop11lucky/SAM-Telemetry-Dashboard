@@ -107,14 +107,16 @@ with tab2:
                       title="Spend Distribution by Vendor")
         st.plotly_chart(fig7, use_container_width=True)
 
-    # Risk & Compliance
+    # Compliance & Risk (Fixed)
     st.subheader("Compliance & Risk Exposure")
     compliance_df = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
     compliance_df["OverUsage"] = compliance_df["ActualUsage"] - compliance_df["EntitledLicenses"]
     compliance_df["PenaltyRisk($)"] = compliance_df["OverUsage"].apply(lambda x: x*200 if x>0 else 0)
+    compliance_df["UnderUtilization"] = compliance_df["EntitledLicenses"] - compliance_df["ActualUsage"]
+    compliance_df["WastedSpend($)"] = compliance_df["UnderUtilization"].apply(lambda x: x*50 if x>0 else 0)
 
-    fig8 = px.bar(compliance_df, x="Vendor", y="PenaltyRisk($)",
-                  title="Potential Penalty Risk by Vendor")
+    fig8 = px.bar(compliance_df, x="Vendor", y=["PenaltyRisk($)", "WastedSpend($)"],
+                  barmode="group", title="Compliance Risks & Wasted Spend by Vendor")
     st.plotly_chart(fig8, use_container_width=True)
 
     # Forecast
