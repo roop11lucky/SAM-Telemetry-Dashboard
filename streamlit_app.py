@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
 
 st.set_page_config(layout="wide")
 st.title("📊 Unified Software Asset Management Telemetry Dashboard")
@@ -10,6 +11,12 @@ def load_data():
     return pd.read_csv("telemetry_data.csv")
 
 df = load_data()
+
+# ---------------- Data Quality & Governance banner ----------------
+st.caption(f"Data last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+null_rate = float(df.isna().mean().mean())
+st.progress(min(1.0, 1 - null_rate))
+st.caption(f"Data completeness: {(1 - null_rate) * 100:.1f}%  •  Sources: Endpoint agents + SaaS connectors (simulated)")
 
 # ---------------- Tabs ----------------
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -21,12 +28,12 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ======================================================
-# OPERATIONAL VIEW (search moved near the table)
+# TAB 1 — OPERATIONAL VIEW
 # ======================================================
 with tab1:
     st.subheader("Operational Telemetry Dashboard")
 
-    # Filters row (visual/placeholder filters)
+    # Visual/placeholder filters row (kept for layout parity)
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.selectbox("Impact", ["All","High","Medium","Low"])
     with col2: st.selectbox("Urgency", ["All","Critical","High","Low"])
@@ -34,11 +41,11 @@ with tab1:
     with col4: st.selectbox("State", ["All","Active","Resolved","Closed"])
 
     # KPI Tiles
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Active Compliance Issues", int((df["EntitledLicenses"] - df["ActualUsage"]).sum()))
-    kpi2.metric("High Impact Risks", int((df["ActualUsage"] > df["EntitledLicenses"]).sum()))
-    kpi3.metric("Unused Licenses >90d", 340)  # placeholder
-    kpi4.metric("Resolved Issues", 210)       # placeholder
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Active Compliance Issues", int((df["EntitledLicenses"] - df["ActualUsage"]).sum()))
+    k2.metric("High Impact Risks", int((df["ActualUsage"] > df["EntitledLicenses"]).sum()))
+    k3.metric("Unused Licenses >90d", 340)  # placeholder
+    k4.metric("Resolved Issues", 210)       # placeholder
 
     # Charts
     col1, col2 = st.columns(2)
@@ -72,32 +79,52 @@ with tab1:
                       title="Usage by Location")
         st.plotly_chart(fig5, use_container_width=True)
 
-    # 🔎 Search placed JUST ABOVE the table
+    # ---------- Filters & Search JUST ABOVE the table ----------
     st.subheader("Detailed Telemetry Records")
+
+    fc1, fc2 = st.columns(2)
+    vendor_filter = fc1.multiselect("Filter by Vendor", sorted(df["Vendor"].unique()))
+    location_filter = fc2.multiselect("Filter by Location", sorted(df["Location"].unique()))
+
+    base_filtered = df.copy()
+    if vendor_filter:
+        base_filtered = base_filtered[base_filtered["Vendor"].isin(vendor_filter)]
+    if location_filter:
+        base_filtered = base_filtered[base_filtered["Location"].isin(location_filter)]
+
     query = st.text_input("Search records (EmployeeID, DeviceID, Location, Vendor, Product)")
-    filtered_df = df
+    filtered_df = base_filtered
     if query:
         q = str(query).strip()
         mask = (
-            df["EmployeeID"].astype(str).str.contains(q, case=False, na=False) |
-            df["DeviceID"].astype(str).str.contains(q, case=False, na=False) |
-            df["Location"].astype(str).str.contains(q, case=False, na=False) |
-            df["Vendor"].astype(str).str.contains(q, case=False, na=False) |
-            df["Product"].astype(str).str.contains(q, case=False, na=False)
+            base_filtered["EmployeeID"].astype(str).str.contains(q, case=False, na=False) |
+            base_filtered["DeviceID"].astype(str).str.contains(q, case=False, na=False) |
+            base_filtered["Location"].astype(str).str.contains(q, case=False, na=False) |
+            base_filtered["Vendor"].astype(str).str.contains(q, case=False, na=False) |
+            base_filtered["Product"].astype(str).str.contains(q, case=False, na=False)
         )
-        filtered_df = df[mask]
+        filtered_df = base_filtered[mask]
 
     st.caption(f"Showing {len(filtered_df):,} of {len(df):,} records")
     st.dataframe(filtered_df.head(1000))
 
+    # Download filtered results
+    export_csv = filtered_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download filtered telemetry (CSV)",
+        data=export_csv,
+        file_name="telemetry_filtered.csv",
+        mime="text/csv"
+    )
+
 # ======================================================
-# CXO VIEW (enhanced + original charts retained)
+# TAB 2 — CXO VIEW (enhanced + originals)
 # ======================================================
 with tab2:
     st.subheader("CXO Strategic Dashboard")
 
-    # Business inputs
-    budget = 2_800_000  # You can make this a st.number_input if you want it editable
+    # Editable budget control
+    budget = st.number_input("Annual Budget ($)", min_value=0, value=2_800_000, step=50_000)
 
     # Core financials
     actual_spend = df["EntitledLicenses"].sum() * 50
@@ -112,13 +139,21 @@ with tab2:
     total_vendors = compliance_df.shape[0]
     compliance_rate = (compliant_vendors / total_vendors) * 100 if total_vendors else 0
 
-    # KPIs
+    # Unit economics
+    employees = 20000  # org size
+    active_users = df.loc[df["ActualUsage"] > 0, "EmployeeID"].nunique()
+    cost_per_employee = actual_spend / max(1, employees)
+    cost_per_active_user = effective_spend / max(1, active_users)
+
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Budget ($)", f"{budget:,.0f}")
     k2.metric("Actual Spend ($)", f"{actual_spend:,.0f}")
     k3.metric("Effective Spend ($)", f"{effective_spend:,.0f}")
     k4.metric("Savings Opportunity ($)", f"{savings_opportunity:,.0f}")
-    st.metric("Compliance % (Audit Ready)", f"{compliance_rate:.2f}%")
+    u1, u2, u3 = st.columns(3)
+    u1.metric("Compliance % (Audit Ready)", f"{compliance_rate:.2f}%")
+    u2.metric("Cost per Employee", f"${cost_per_employee:,.2f}")
+    u3.metric("Cost per Active User", f"${cost_per_active_user:,.2f}")
 
     # New business charts
     st.markdown("#### Budget vs Actual vs Effective")
@@ -139,6 +174,19 @@ with tab2:
     fig_new2 = px.line(forecast_df, x="Quarter", y=["Budget","ActualRenewals"],
                        markers=True, title="Budget vs Actual Renewal Forecast (Cumulative)")
     st.plotly_chart(fig_new2, use_container_width=True)
+
+    # Renewal Calendar (timeline)
+    st.markdown("#### Renewal Calendar (Next 12 Months)")
+    renewals = pd.DataFrame({
+        "Vendor": ["Microsoft 365","Salesforce","Oracle DB","Zoom"],
+        "Start": pd.to_datetime(["2025-01-01","2025-03-01","2025-05-01","2025-07-01"]),
+        "End":   pd.to_datetime(["2025-03-31","2025-06-30","2025-08-31","2025-10-31"]),
+        "Value": [450000, 300000, 500000, 120000]
+    })
+    fig_tl = px.timeline(renewals, x_start="Start", x_end="End", y="Vendor", color="Value",
+                         title="Renewal Calendar")
+    fig_tl.update_yaxes(autorange="reversed")
+    st.plotly_chart(fig_tl, use_container_width=True)
 
     st.divider()
     st.markdown("#### Original CXO Visuals")
@@ -161,7 +209,7 @@ with tab2:
                           title="Spend Distribution by Vendor")
         st.plotly_chart(fig_old2, use_container_width=True)
 
-    # Compliance & Risk Exposure (over-usage + under-utilization)
+    # Compliance & Risk Exposure
     st.markdown("#### Compliance & Risk Exposure")
     compliance_df["OverUsage"] = compliance_df["ActualUsage"] - compliance_df["EntitledLicenses"]
     compliance_df["PenaltyRisk($)"] = compliance_df["OverUsage"].apply(lambda x: x*200 if x>0 else 0)
@@ -182,7 +230,7 @@ with tab2:
     st.plotly_chart(fig_old4, use_container_width=True)
 
 # ======================================================
-# SOFTWARE INVENTORY & SECURITY
+# TAB 3 — SOFTWARE INVENTORY & SECURITY
 # ======================================================
 with tab3:
     st.subheader("Software Inventory & Security")
@@ -206,7 +254,7 @@ with tab3:
     st.dataframe(df[["EmployeeID","DeviceID","Location","Vendor","Product"]].sample(50))
 
 # ======================================================
-# OPTIMIZATION & SAVINGS
+# TAB 4 — OPTIMIZATION & SAVINGS
 # ======================================================
 with tab4:
     st.subheader("Optimization & Savings")
@@ -216,26 +264,34 @@ with tab4:
     optimization_df["ShelfwareSavings($)"] = optimization_df["UnusedLicenses"] * 50
 
     total_shelfware = optimization_df["ShelfwareSavings($)"].sum()
-    downgrade_savings = 65000
+    base_downgrade_savings = 65000
     consolidation_savings = 40000
-    total_savings = total_shelfware + downgrade_savings + consolidation_savings
+
+    # Scenario sliders
+    st.markdown("#### Scenario Planning")
+    rec_rate = st.slider("Reclaim % of shelfware", 0, 100, 40)
+    dwn_rate = st.slider("Downgrade % of candidates", 0, 100, 30)
+
+    scenario_shelfware = total_shelfware * (rec_rate / 100)
+    scenario_downgrade = base_downgrade_savings * (dwn_rate / 100)
+    scenario_total = scenario_shelfware + scenario_downgrade + consolidation_savings
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total Savings Potential ($)", f"{total_savings:,.0f}")
-    k2.metric("Shelfware Savings ($)", f"{total_shelfware:,.0f}")
-    k3.metric("Downgrade Savings ($)", f"{downgrade_savings:,.0f}")
+    k1.metric("Scenario Savings ($)", f"{scenario_total:,.0f}")
+    k2.metric("Shelfware Savings ($)", f"{scenario_shelfware:,.0f}")
+    k3.metric("Downgrade Savings ($)", f"{scenario_downgrade:,.0f}")
     k4.metric("Consolidation Savings ($)", f"{consolidation_savings:,.0f}")
 
     fig13 = px.bar(optimization_df, x="Vendor", y="ShelfwareSavings($)",
-                   title="Shelfware Savings by Vendor")
+                   title="Shelfware Savings by Vendor (Baseline, before scenario)")
     st.plotly_chart(fig13, use_container_width=True)
 
     forecast_savings = pd.DataFrame({
-        "Category": ["Shelfware", "Downgrades", "Consolidation"],
-        "Savings($)": [total_shelfware, downgrade_savings, consolidation_savings]
+        "Category": ["Shelfware (Scenario)", "Downgrades (Scenario)", "Consolidation (Fixed)"],
+        "Savings($)": [scenario_shelfware, scenario_downgrade, consolidation_savings]
     })
     fig14 = px.bar(forecast_savings, x="Category", y="Savings($)", color="Category",
-                   title="Forecasted Optimization Savings")
+                   title="Forecasted Optimization Savings (Scenario)")
     st.plotly_chart(fig14, use_container_width=True)
 
     st.subheader("Downgrade Opportunities")
@@ -267,7 +323,7 @@ with tab4:
     st.table(idle)
 
 # ======================================================
-# ACTIONABLE ITEMS
+# TAB 5 — ACTIONABLE ITEMS
 # ======================================================
 with tab5:
     st.subheader("📝 Actionable Items")
@@ -327,3 +383,13 @@ with tab5:
         "Owner": ["Governance","IT Ops"]
     })
     st.table(governance_actions)
+
+    # Download all actions as CSV
+    all_actions = pd.concat([compliance_actions, cost_actions, security_actions, renewal_actions, governance_actions], ignore_index=True)
+    actions_csv = all_actions.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download Actionable Items (CSV)",
+        data=actions_csv,
+        file_name="sam_actionable_items.csv",
+        mime="text/csv"
+    )
