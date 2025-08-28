@@ -2,33 +2,80 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+st.set_page_config(layout="wide")
+st.title("📊 Unified SAM Telemetry Dashboard")
+
 @st.cache_data
 def load_data():
     return pd.read_csv("telemetry_data.csv")
 
 df = load_data()
 
-st.set_page_config(layout="wide")
-st.title("📊 Unified SAM Telemetry Dashboard")
-
 # ---------------- Tabs ----------------
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🔍 Operational View", 
-    "💼 CXO View", 
-    "🖥 Software Inventory & Security", 
+    "🔍 Operational View",
+    "💼 CXO View",
+    "🖥 Software Inventory & Security",
     "💰 Optimization & Savings",
     "📝 Actionable Items"
 ])
 
 # ======================================================
-# OPERATIONAL VIEW with Global Search
+# OPERATIONAL VIEW (search moved near the table)
 # ======================================================
 with tab1:
     st.subheader("Operational Telemetry Dashboard")
 
-    # 🔎 Global search across common fields
+    # Filters row (visual/placeholder filters)
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: st.selectbox("Impact", ["All","High","Medium","Low"])
+    with col2: st.selectbox("Urgency", ["All","Critical","High","Low"])
+    with col3: st.selectbox("Category", ["All","Software","Hardware","Database","Network"])
+    with col4: st.selectbox("State", ["All","Active","Resolved","Closed"])
+
+    # KPI Tiles
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("Active Compliance Issues", int((df["EntitledLicenses"] - df["ActualUsage"]).sum()))
+    kpi2.metric("High Impact Risks", int((df["ActualUsage"] > df["EntitledLicenses"]).sum()))
+    kpi3.metric("Unused Licenses >90d", 340)  # placeholder
+    kpi4.metric("Resolved Issues", 210)       # placeholder
+
+    # Charts
+    col1, col2 = st.columns(2)
+    with col1:
+        fig1 = px.pie(df, names="DeploymentType", title="Usage by Deployment Type")
+        st.plotly_chart(fig1, use_container_width=True)
+    with col2:
+        fig2 = px.treemap(df, path=["Vendor","Product"], values="EntitledLicenses",
+                          title="Entitlements by Vendor/Product")
+        st.plotly_chart(fig2, use_container_width=True)
+
+    # Funnel
+    st.subheader("License Lifecycle Funnel")
+    funnel_df = pd.DataFrame({
+        "Stage": ["Purchased","Assigned","Active Use","Expired"],
+        "Count": [20000,18000,15000,3000]
+    })
+    fig3 = px.funnel(funnel_df, x="Count", y="Stage", title="License Lifecycle")
+    st.plotly_chart(fig3, use_container_width=True)
+
+    # Charts Row 2
+    col1, col2 = st.columns(2)
+    with col1:
+        vendor_usage = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
+        fig4 = px.bar(vendor_usage, x="Vendor", y=["EntitledLicenses","ActualUsage"],
+                      barmode="group", title="Usage vs Entitlements (by Vendor)")
+        st.plotly_chart(fig4, use_container_width=True)
+    with col2:
+        location_usage = df.groupby("Location")[["ActualUsage"]].sum().reset_index()
+        fig5 = px.bar(location_usage, x="Location", y="ActualUsage",
+                      title="Usage by Location")
+        st.plotly_chart(fig5, use_container_width=True)
+
+    # 🔎 Search placed JUST ABOVE the table
+    st.subheader("Detailed Telemetry Records")
     query = st.text_input("Search records (EmployeeID, DeviceID, Location, Vendor, Product)")
-    filtered_df = df.copy()
+    filtered_df = df
     if query:
         q = str(query).strip()
         mask = (
@@ -40,72 +87,32 @@ with tab1:
         )
         filtered_df = df[mask]
 
-    # Filters row (kept minimal; complements search)
-    col1, col2, col3, col4 = st.columns(4)
-    with col1: st.selectbox("Impact", ["All","High","Medium","Low"])
-    with col2: st.selectbox("Urgency", ["All","Critical","High","Low"])
-    with col3: st.selectbox("Category", ["All","Software","Hardware","Database","Network"])
-    with col4: st.selectbox("State", ["All","Active","Resolved","Closed"])
-
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Active Compliance Issues", int((df["EntitledLicenses"] - df["ActualUsage"]).sum()))
-    kpi2.metric("High Impact Risks", int((df["ActualUsage"] > df["EntitledLicenses"]).sum()))
-    kpi3.metric("Unused Licenses >90d", 340)
-    kpi4.metric("Resolved Issues", 210)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        fig1 = px.pie(df, names="DeploymentType", title="Usage by Deployment Type")
-        st.plotly_chart(fig1, use_container_width=True)
-    with col2:
-        fig2 = px.treemap(df, path=["Vendor","Product"], values="EntitledLicenses",
-                          title="Entitlements by Vendor/Product")
-        st.plotly_chart(fig2, use_container_width=True)
-
-    st.subheader("License Lifecycle Funnel")
-    funnel_df = pd.DataFrame({
-        "Stage": ["Purchased","Assigned","Active Use","Expired"],
-        "Count": [20000,18000,15000,3000]
-    })
-    fig3 = px.funnel(funnel_df, x="Count", y="Stage", title="License Lifecycle")
-    st.plotly_chart(fig3, use_container_width=True)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        vendor_usage = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
-        fig4 = px.bar(vendor_usage, x="Vendor", y=["EntitledLicenses","ActualUsage"], 
-                      barmode="group", title="Usage vs Entitlements (by Vendor)")
-        st.plotly_chart(fig4, use_container_width=True)
-    with col2:
-        location_usage = df.groupby("Location")[["ActualUsage"]].sum().reset_index()
-        fig5 = px.bar(location_usage, x="Location", y="ActualUsage",
-                      title="Usage by Location")
-        st.plotly_chart(fig5, use_container_width=True)
-
-    # 📋 Drill-down with search-applied dataframe
-    st.subheader("Detailed Telemetry Records")
     st.caption(f"Showing {len(filtered_df):,} of {len(df):,} records")
     st.dataframe(filtered_df.head(1000))
 
 # ======================================================
-# CXO VIEW (kept from enhanced version)
+# CXO VIEW (enhanced + original charts retained)
 # ======================================================
 with tab2:
     st.subheader("CXO Strategic Dashboard")
 
-    budget = 2_800_000  # can be parameterized later
+    # Business inputs
+    budget = 2_800_000  # You can make this a st.number_input if you want it editable
 
+    # Core financials
     actual_spend = df["EntitledLicenses"].sum() * 50
     effective_spend = df["ActualUsage"].sum() * 50
     overspend = max(0, actual_spend - budget)
     unused_waste = max(0, actual_spend - effective_spend)
     savings_opportunity = overspend + unused_waste
 
+    # Compliance (Audit-Readiness)
     compliance_df = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
     compliant_vendors = (compliance_df["ActualUsage"] <= compliance_df["EntitledLicenses"]).sum()
     total_vendors = compliance_df.shape[0]
     compliance_rate = (compliant_vendors / total_vendors) * 100 if total_vendors else 0
 
+    # KPIs
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Budget ($)", f"{budget:,.0f}")
     k2.metric("Actual Spend ($)", f"{actual_spend:,.0f}")
@@ -113,9 +120,14 @@ with tab2:
     k4.metric("Savings Opportunity ($)", f"{savings_opportunity:,.0f}")
     st.metric("Compliance % (Audit Ready)", f"{compliance_rate:.2f}%")
 
+    # New business charts
     st.markdown("#### Budget vs Actual vs Effective")
-    spend_df = pd.DataFrame({"Type": ["Budget","Actual","Effective"], "Value": [budget, actual_spend, effective_spend]})
-    fig_new1 = px.bar(spend_df, x="Type", y="Value", color="Type", title="Budget vs Actual vs Effective Spend")
+    spend_df = pd.DataFrame({
+        "Type": ["Budget","Actual","Effective"],
+        "Value": [budget, actual_spend, effective_spend]
+    })
+    fig_new1 = px.bar(spend_df, x="Type", y="Value", color="Type",
+                      title="Budget vs Actual vs Effective Spend")
     st.plotly_chart(fig_new1, use_container_width=True)
 
     st.markdown("#### Forecast: Budget vs Actual Renewals (Cumulative)")
@@ -124,12 +136,14 @@ with tab2:
         "Budget": [700000, 1400000, 2100000, 2800000],
         "ActualRenewals": [750000, 1500000, 2300000, 3000000]
     })
-    fig_new2 = px.line(forecast_df, x="Quarter", y=["Budget","ActualRenewals"], markers=True,
-                       title="Budget vs Actual Renewal Forecast (Cumulative)")
+    fig_new2 = px.line(forecast_df, x="Quarter", y=["Budget","ActualRenewals"],
+                       markers=True, title="Budget vs Actual Renewal Forecast (Cumulative)")
     st.plotly_chart(fig_new2, use_container_width=True)
 
     st.divider()
     st.markdown("#### Original CXO Visuals")
+
+    # Spend Optimization (Pareto)
     cost_map = {"Microsoft 365": 15, "Adobe CC": 25, "Oracle DB": 500,
                 "SQL Server": 300, "Zoom": 12, "Salesforce": 120}
     df_cost = df.copy()
@@ -147,6 +161,7 @@ with tab2:
                           title="Spend Distribution by Vendor")
         st.plotly_chart(fig_old2, use_container_width=True)
 
+    # Compliance & Risk Exposure (over-usage + under-utilization)
     st.markdown("#### Compliance & Risk Exposure")
     compliance_df["OverUsage"] = compliance_df["ActualUsage"] - compliance_df["EntitledLicenses"]
     compliance_df["PenaltyRisk($)"] = compliance_df["OverUsage"].apply(lambda x: x*200 if x>0 else 0)
@@ -156,6 +171,7 @@ with tab2:
                       barmode="group", title="Compliance Risks & Wasted Spend by Vendor")
     st.plotly_chart(fig_old3, use_container_width=True)
 
+    # Adoption by Department
     st.markdown("#### Adoption by Function (Sample)")
     adoption_df = pd.DataFrame({
         "Department": ["IT","Finance","HR","Marketing","Engineering"],
@@ -170,12 +186,14 @@ with tab2:
 # ======================================================
 with tab3:
     st.subheader("Software Inventory & Security")
+
     inventory_summary = df.groupby("Product")[["EntitledLicenses"]].count().reset_index()
     inventory_summary.columns = ["Product", "Installations"]
     fig11 = px.bar(inventory_summary.sort_values("Installations", ascending=False).head(10),
                    x="Product", y="Installations", title="Top 10 Installed Products")
     st.plotly_chart(fig11, use_container_width=True)
 
+    # Simulated security signals
     security_df = df.groupby("Vendor")[["EntitledLicenses"]].count().reset_index()
     security_df.columns = ["Vendor", "Installations"]
     security_df["EOL %"] = [12, 8, 5, 10, 6, 4]
@@ -192,6 +210,7 @@ with tab3:
 # ======================================================
 with tab4:
     st.subheader("Optimization & Savings")
+
     optimization_df = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
     optimization_df["UnusedLicenses"] = optimization_df["EntitledLicenses"] - optimization_df["ActualUsage"]
     optimization_df["ShelfwareSavings($)"] = optimization_df["UnusedLicenses"] * 50
@@ -252,9 +271,13 @@ with tab4:
 # ======================================================
 with tab5:
     st.subheader("📝 Actionable Items")
+
     st.markdown("### Compliance Actions")
     compliance_actions = pd.DataFrame({
-        "Action": ["Reconcile 50 Oracle DB licenses","Remove 30 unauthorized Adobe installs"],
+        "Action": [
+            "Reconcile 50 Oracle DB licenses",
+            "Remove 30 unauthorized Adobe installs"
+        ],
         "Priority": ["High","Medium"],
         "Owner": ["SAM Team","IT Security"]
     })
@@ -262,7 +285,11 @@ with tab5:
 
     st.markdown("### Cost Optimization Actions")
     cost_actions = pd.DataFrame({
-        "Action": ["Reharvest 120 inactive M365 licenses","Downgrade 200 users to Basic edition","Consolidate Zoom into Teams"],
+        "Action": [
+            "Reharvest 120 inactive M365 licenses",
+            "Downgrade 200 users to Basic edition",
+            "Consolidate Zoom into Teams"
+        ],
         "Priority": ["High","High","Medium"],
         "Owner": ["Procurement","IT Ops","Procurement"]
     })
@@ -270,7 +297,10 @@ with tab5:
 
     st.markdown("### Security Actions")
     security_actions = pd.DataFrame({
-        "Action": ["Upgrade 80 Win7 devices","Patch Oracle 19c installations"],
+        "Action": [
+            "Upgrade 80 Win7 devices",
+            "Patch Oracle 19c installations"
+        ],
         "Priority": ["High","High"],
         "Owner": ["IT Ops","DBA Team"]
     })
@@ -278,7 +308,10 @@ with tab5:
 
     st.markdown("### Renewal Actions")
     renewal_actions = pd.DataFrame({
-        "Action": ["Negotiate Salesforce renewal (Q2)","Evaluate Oracle contract renewal"],
+        "Action": [
+            "Negotiate Salesforce renewal (Q2)",
+            "Evaluate Oracle contract renewal"
+        ],
         "Priority": ["Medium","High"],
         "Owner": ["Procurement","CIO Office"]
     })
@@ -286,7 +319,10 @@ with tab5:
 
     st.markdown("### Governance Actions")
     governance_actions = pd.DataFrame({
-        "Action": ["Create policy for auto-reclaim unused >90d","Enforce SaaS assignment approval"],
+        "Action": [
+            "Create policy for auto-reclaim unused >90d",
+            "Enforce SaaS assignment approval"
+        ],
         "Priority": ["Medium","Medium"],
         "Owner": ["Governance","IT Ops"]
     })
