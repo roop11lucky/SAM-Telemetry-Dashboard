@@ -12,7 +12,12 @@ st.set_page_config(layout="wide")
 st.title("📊 Unified SAM Telemetry Dashboard")
 
 # ---------------- Tabs ----------------
-tab1, tab2 = st.tabs(["🔍 Operational View", "💼 CXO View"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🔍 Operational View", 
+    "💼 CXO View", 
+    "🖥 Software Inventory & Security", 
+    "💰 Optimization & Savings"
+])
 
 # ======================================================
 # OPERATIONAL VIEW
@@ -107,7 +112,7 @@ with tab2:
                       title="Spend Distribution by Vendor")
         st.plotly_chart(fig7, use_container_width=True)
 
-    # Compliance & Risk (Fixed)
+    # Compliance & Risk
     st.subheader("Compliance & Risk Exposure")
     compliance_df = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
     compliance_df["OverUsage"] = compliance_df["ActualUsage"] - compliance_df["EntitledLicenses"]
@@ -138,3 +143,56 @@ with tab2:
     fig10 = px.bar(adoption_df, x="Department", y="AdoptionRate(%)", 
                    title="License Adoption by Department", color="AdoptionRate(%)")
     st.plotly_chart(fig10, use_container_width=True)
+
+# ======================================================
+# SOFTWARE INVENTORY & SECURITY
+# ======================================================
+with tab3:
+    st.subheader("Software Inventory & Security")
+
+    # Top Installed Products
+    inventory_summary = df.groupby("Product")[["EntitledLicenses"]].count().reset_index()
+    inventory_summary.columns = ["Product", "Installations"]
+    fig11 = px.bar(inventory_summary.sort_values("Installations", ascending=False).head(10),
+                   x="Product", y="Installations", title="Top 10 Installed Products")
+    st.plotly_chart(fig11, use_container_width=True)
+
+    # Security Simulation: EOL / Vulnerable software
+    security_df = df.groupby("Vendor")[["EntitledLicenses"]].count().reset_index()
+    security_df.columns = ["Vendor", "Installations"]
+    security_df["EOL %"] = [12, 8, 5, 10, 6, 4]  # simulated
+    security_df["Vulnerable %"] = [5, 3, 2, 4, 2, 1]
+
+    fig12 = px.bar(security_df, x="Vendor", y=["EOL %", "Vulnerable %"],
+                   barmode="group", title="Security Risks by Vendor")
+    st.plotly_chart(fig12, use_container_width=True)
+
+    st.subheader("Full Installed Software Inventory")
+    st.dataframe(df[["EmployeeID","DeviceID","Location","Vendor","Product"]].sample(50))
+
+# ======================================================
+# OPTIMIZATION & SAVINGS
+# ======================================================
+with tab4:
+    st.subheader("Optimization & Savings")
+
+    optimization_df = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
+    optimization_df["UnusedLicenses"] = optimization_df["EntitledLicenses"] - optimization_df["ActualUsage"]
+    optimization_df["SavingsPotential($)"] = optimization_df["UnusedLicenses"] * 50  # assume $50/license
+
+    fig13 = px.bar(optimization_df, x="Vendor", y="SavingsPotential($)",
+                   title="Potential Savings by Vendor (Shelfware)")
+    st.plotly_chart(fig13, use_container_width=True)
+
+    # Downgrade Recommendations (simulated)
+    recs = pd.DataFrame({
+        "Vendor": ["Microsoft 365","Adobe CC","Salesforce"],
+        "Recommendation": [
+            "Downgrade 200 Pro users to Basic",
+            "Reclaim 120 unused Photoshop licenses",
+            "Reassign 50 inactive CRM Cloud seats"
+        ],
+        "Estimated Savings ($)": [30000, 15000, 20000]
+    })
+    st.subheader("Optimization Recommendations")
+    st.table(recs)
