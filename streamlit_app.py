@@ -9,7 +9,7 @@ def load_data():
 df = load_data()
 
 st.set_page_config(layout="wide")
-st.title("📊 SAM Telemetry Dashboard (ServiceNow Style)")
+st.title("📊 SAM Telemetry Dashboard")
 
 # ---------------- Filters ----------------
 col1, col2, col3, col4 = st.columns(4)
