@@ -74,60 +74,50 @@ with tab1:
 # ======================================================
 with tab2:
     st.subheader("CXO Strategic Dashboard")
-    total_spend = (df["EntitledLicenses"].sum() * 50)
-    actual_spend = (df["ActualUsage"].sum() * 50)
-    savings_potential = total_spend - actual_spend
-    compliance_rate = (df["ActualUsage"].sum() / df["EntitledLicenses"].sum()) * 100
 
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Total Spend ($)", f"{total_spend:,.0f}")
-    kpi2.metric("Actual Usage Spend ($)", f"{actual_spend:,.0f}")
-    kpi3.metric("Savings Opportunity ($)", f"{savings_potential:,.0f}")
-    kpi4.metric("Compliance %", f"{compliance_rate:.2f}%")
+    # Assume Budget input (simulated for now)
+    budget = 2800000  
 
-    cost_map = {"Microsoft 365": 15, "Adobe CC": 25, "Oracle DB": 500,
-                "SQL Server": 300, "Zoom": 12, "Salesforce": 120}
-    df["CostPerLicense"] = df["Vendor"].map(cost_map)
-    df["TotalCost"] = df["EntitledLicenses"] * df["CostPerLicense"]
-    spend_summary = df.groupby("Vendor")[["TotalCost"]].sum().reset_index()
+    actual_spend = (df["EntitledLicenses"].sum() * 50)
+    effective_spend = (df["ActualUsage"].sum() * 50)
+    overspend = max(0, actual_spend - budget)
+    unused_waste = max(0, actual_spend - effective_spend)
+    savings_opportunity = overspend + unused_waste
 
-    col1, col2 = st.columns(2)
-    with col1:
-        fig6 = px.bar(spend_summary.sort_values("TotalCost", ascending=False),
-                      x="Vendor", y="TotalCost", title="Top Vendors by Spend")
-        st.plotly_chart(fig6, use_container_width=True)
-    with col2:
-        fig7 = px.pie(spend_summary, names="Vendor", values="TotalCost",
-                      title="Spend Distribution by Vendor")
-        st.plotly_chart(fig7, use_container_width=True)
-
-    st.subheader("Compliance & Risk Exposure")
+    # Compliance %
     compliance_df = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
-    compliance_df["OverUsage"] = compliance_df["ActualUsage"] - compliance_df["EntitledLicenses"]
-    compliance_df["PenaltyRisk($)"] = compliance_df["OverUsage"].apply(lambda x: x*200 if x>0 else 0)
-    compliance_df["UnderUtilization"] = compliance_df["EntitledLicenses"] - compliance_df["ActualUsage"]
-    compliance_df["WastedSpend($)"] = compliance_df["UnderUtilization"].apply(lambda x: x*50 if x>0 else 0)
-    fig8 = px.bar(compliance_df, x="Vendor", y=["PenaltyRisk($)", "WastedSpend($)"],
-                  barmode="group", title="Compliance Risks & Wasted Spend by Vendor")
-    st.plotly_chart(fig8, use_container_width=True)
+    compliant_vendors = compliance_df[compliance_df["ActualUsage"] <= compliance_df["EntitledLicenses"]].shape[0]
+    total_vendors = compliance_df.shape[0]
+    compliance_rate = (compliant_vendors / total_vendors) * 100
 
-    st.subheader("License Renewal Forecast (Next 4 Quarters)")
+    # KPIs
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Budget ($)", f"{budget:,.0f}")
+    k2.metric("Actual Spend ($)", f"{actual_spend:,.0f}")
+    k3.metric("Effective Spend ($)", f"{effective_spend:,.0f}")
+    k4.metric("Savings Opportunity ($)", f"{savings_opportunity:,.0f}")
+
+    # Compliance KPI
+    st.metric("Compliance % (Audit Ready)", f"{compliance_rate:.2f}%")
+
+    # Chart 1: Budget vs Actual vs Effective
+    spend_df = pd.DataFrame({
+        "Type": ["Budget","Actual","Effective"],
+        "Value": [budget, actual_spend, effective_spend]
+    })
+    fig1 = px.bar(spend_df, x="Type", y="Value", title="Budget vs Actual vs Effective Spend", color="Type")
+    st.plotly_chart(fig1, use_container_width=True)
+
+    # Chart 2: Forecast
     forecast_df = pd.DataFrame({
         "Quarter": ["Q1","Q2","Q3","Q4"],
-        "RenewalValue": [120000, 95000, 150000, 175000]
+        "Budget": [700000, 1400000, 2100000, 2800000],
+        "ActualRenewals": [750000, 1500000, 2300000, 3000000]
     })
-    fig9 = px.line(forecast_df, x="Quarter", y="RenewalValue", markers=True,
-                   title="Upcoming Renewal Exposure")
-    st.plotly_chart(fig9, use_container_width=True)
+    fig2 = px.line(forecast_df, x="Quarter", y=["Budget","ActualRenewals"], 
+                   markers=True, title="Budget vs Actual Renewal Forecast")
+    st.plotly_chart(fig2, use_container_width=True)
 
-    st.subheader("Adoption by Function (Sample)")
-    adoption_df = pd.DataFrame({
-        "Department": ["IT","Finance","HR","Marketing","Engineering"],
-        "AdoptionRate(%)": [92, 70, 65, 40, 85]
-    })
-    fig10 = px.bar(adoption_df, x="Department", y="AdoptionRate(%)", 
-                   title="License Adoption by Department", color="AdoptionRate(%)")
-    st.plotly_chart(fig10, use_container_width=True)
 
 # ======================================================
 # SOFTWARE INVENTORY & SECURITY
