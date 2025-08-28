@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import numpy as np
 
 st.set_page_config(layout="wide")
-st.title("📊 Unified Software Asset Management Telemetry Dashboard")
+st.title("📊 Unified SAM Telemetry Dashboard")
 
 # ---------- Data Loading (enhanced-first, fallback to basic) ----------
 @st.cache_data
@@ -21,15 +21,13 @@ def load_data():
                         "SQL Server": 300, "Zoom": 12, "Salesforce": 120}
             df["CostPerLicense"] = df["Vendor"].map(cost_map).fillna(25)
         if "LastUsedDays" not in df.columns:
-            df["LastUsedDays"] = 0  # treat as actively used in legacy data
+            df["LastUsedDays"] = 0
         if "Department" not in df.columns:
             df["Department"] = "Unknown"
         if "ContractEndDate" not in df.columns:
-            # create a synthetic renewal end within next 12 months
             today = pd.Timestamp.today().normalize()
             df["ContractEndDate"] = today + pd.to_timedelta(np.random.randint(30, 365, size=len(df)), unit="D")
         else:
-            # Ensure parsed
             df["ContractEndDate"] = pd.to_datetime(df["ContractEndDate"], errors="coerce").fillna(pd.Timestamp.today())
         if "IsEOL" not in df.columns:
             df["IsEOL"] = 0
@@ -62,31 +60,46 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📝 Actionable Items"
 ])
 
+# Utility: synthesize a 12-month time series of "spend" from SAM data for anomaly detection
+def synth_spend_timeseries(df, months=12, seed=7):
+    rng = np.random.default_rng(seed)
+    base = (df["EntitledLicenses"] * df["CostPerLicense"]).sum()
+    # Seasonality + noise
+    dates = pd.period_range(end=pd.Timestamp.today(), periods=months, freq="M").to_timestamp()
+    season = 0.1 * np.sin(np.linspace(0, 2*np.pi, months))
+    noise = rng.normal(0, 0.05, months)
+    # occasional spike
+    spikes = np.zeros(months)
+    for _ in range(2):
+        spikes[rng.integers(0, months)] += rng.uniform(0.15, 0.35)
+    values = base * (1 + season + noise + spikes)
+    return pd.DataFrame({"Month": dates, "Spend": values})
+
 # ======================================================
-# TAB 1 — OPERATIONAL VIEW (with filters + search above table)
+# TAB 1 — OPERATIONAL VIEW (with Anomaly Alerts + filters + search)
 # ======================================================
 with tab1:
     st.subheader("Operational Telemetry Dashboard")
 
-    # Visual filter placeholders for layout parity
-    col1, col2, col3, col4 = st.columns(4)
-    with col1: st.selectbox("Impact", ["All","High","Medium","Low"])
-    with col2: st.selectbox("Urgency", ["All","Critical","High","Low"])
-    with col3: st.selectbox("Category", ["All","Software","Hardware","Database","Network"])
-    with col4: st.selectbox("State", ["All","Active","Resolved","Closed"])
+    # Visual placeholders
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.selectbox("Impact", ["All","High","Medium","Low"])
+    with c2: st.selectbox("Urgency", ["All","Critical","High","Low"])
+    with c3: st.selectbox("Category", ["All","Software","Hardware","Database","Network"])
+    with c4: st.selectbox("State", ["All","Active","Resolved","Closed"])
 
     # KPI Tiles
     k1, k2, k3, k4 = st.columns(4)
-    # Compliance issues: negative is underutilization; count only over-usage risk here
+    # Over-usage risk count
     k1.metric("Active Compliance Issues", int((df["ActualUsage"] > df["EntitledLicenses"]).sum()))
     k2.metric("High Impact Risks", int((df["ActualUsage"] > df["EntitledLicenses"]).sum()))
-    # Use LastUsedDays if available for idle
+    # Idle detection via LastUsedDays
     idle_threshold = 90
     idle_licenses = int((df["LastUsedDays"] >= idle_threshold).sum())
     k3.metric(f"Unused Licenses ≥{idle_threshold}d", idle_licenses)
-    k4.metric("Resolved Issues", 210)  # placeholder for ops process
+    k4.metric("Resolved Issues", 210)  # placeholder
 
-    # Charts: Deployment & Entitlement view
+    # Charts
     col1, col2 = st.columns(2)
     with col1:
         fig1 = px.pie(df, names="DeploymentType", title="Usage by Deployment Type")
@@ -96,26 +109,39 @@ with tab1:
                           title="Entitlements by Vendor/Product")
         st.plotly_chart(fig2, use_container_width=True)
 
+    # ---------- NEW: Anomaly Alerts (Spend spikes) ----------
+    st.subheader("Anomaly Alerts")
+    ts = synth_spend_timeseries(df, months=12)
+    # simple anomaly rule: > mean + 2*std
+    mean_spend, std_spend = ts["Spend"].mean(), ts["Spend"].std()
+    ts["Anomaly"] = ts["Spend"] > (mean_spend + 2*std_spend)
+    anomalies = ts[ts["Anomaly"]]
+    if not anomalies.empty:
+        st.warning(f"Detected {len(anomalies)} unusual monthly spend spike(s).")
+        figA = px.line(ts, x="Month", y="Spend", title="Monthly Spend with Anomalies")
+        figA.add_scatter(x=anomalies["Month"], y=anomalies["Spend"], mode="markers", name="Anomaly", marker_size=12)
+        st.plotly_chart(figA, use_container_width=True)
+        st.dataframe(anomalies[["Month","Spend"]].assign(Spend=lambda d: d["Spend"].round(2)))
+    else:
+        st.success("No spend anomalies detected in the last 12 months.")
+
     # Funnel
     st.subheader("License Lifecycle Funnel")
-    funnel_df = pd.DataFrame({
-        "Stage": ["Purchased","Assigned","Active Use","Expired"],
-        "Count": [20000,18000,15000,3000]
-    })
+    funnel_df = pd.DataFrame({"Stage": ["Purchased","Assigned","Active Use","Expired"],
+                              "Count": [20000,18000,15000,3000]})
     fig3 = px.funnel(funnel_df, x="Count", y="Stage", title="License Lifecycle")
     st.plotly_chart(fig3, use_container_width=True)
 
     # Charts Row 2
-    col1, col2 = st.columns(2)
-    with col1:
+    c3, c4 = st.columns(2)
+    with c3:
         vendor_usage = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
         fig4 = px.bar(vendor_usage, x="Vendor", y=["EntitledLicenses","ActualUsage"],
                       barmode="group", title="Usage vs Entitlements (by Vendor)")
         st.plotly_chart(fig4, use_container_width=True)
-    with col2:
+    with c4:
         location_usage = df.groupby("Location")[["ActualUsage"]].sum().reset_index()
-        fig5 = px.bar(location_usage, x="Location", y="ActualUsage",
-                      title="Usage by Location")
+        fig5 = px.bar(location_usage, x="Location", y="ActualUsage", title="Usage by Location")
         st.plotly_chart(fig5, use_container_width=True)
 
     # ---------- Filters & Search JUST ABOVE the table ----------
@@ -147,39 +173,29 @@ with tab1:
 
     # Download filtered results
     export_csv = filtered_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "Download filtered telemetry (CSV)",
-        data=export_csv,
-        file_name="telemetry_filtered.csv",
-        mime="text/csv"
-    )
+    st.download_button("Download filtered telemetry (CSV)", data=export_csv,
+                       file_name="telemetry_filtered.csv", mime="text/csv")
 
 # ======================================================
-# TAB 2 — CXO VIEW (business-grade + originals, uses CostPerLicense & ContractEndDate)
+# TAB 2 — CXO VIEW (business-grade + originals)
 # ======================================================
 with tab2:
     st.subheader("CXO Strategic Dashboard")
 
-    # Editable budget control
     budget = st.number_input("Annual Budget ($)", min_value=0, value=2_800_000, step=50_000)
 
     # Financials using CostPerLicense where possible
-    # Actual Spend approximated by Entitlements * CostPerLicense
     actual_spend = (df["EntitledLicenses"] * df["CostPerLicense"]).sum()
-    # Effective Spend approximated by ActualUsage * CostPerLicense (usage-based value)
     effective_spend = (df["ActualUsage"] * df["CostPerLicense"]).sum()
-
-    overspend = max(0.0, actual_spend - budget)           # over budget risk
-    unused_waste = max(0.0, actual_spend - effective_spend)  # shelfware waste
+    overspend = max(0.0, actual_spend - budget)
+    unused_waste = max(0.0, actual_spend - effective_spend)
     savings_opportunity = overspend + unused_waste
 
-    # Compliance (Audit-Readiness) by vendor
     compliance_df = df.groupby("Vendor")[["EntitledLicenses","ActualUsage"]].sum().reset_index()
     compliant_vendors = (compliance_df["ActualUsage"] <= compliance_df["EntitledLicenses"]).sum()
     total_vendors = compliance_df.shape[0]
     compliance_rate = (compliant_vendors / total_vendors) * 100 if total_vendors else 0
 
-    # Unit economics
     employees = df["EmployeeID"].nunique()
     active_users = df.loc[df["ActualUsage"] > 0, "EmployeeID"].nunique()
     cost_per_employee = actual_spend / max(1, employees)
@@ -198,31 +214,35 @@ with tab2:
 
     # New business charts
     st.markdown("#### Budget vs Actual vs Effective")
-    spend_df = pd.DataFrame({
-        "Type": ["Budget","Actual","Effective"],
-        "Value": [budget, actual_spend, effective_spend]
-    })
+    spend_df = pd.DataFrame({"Type": ["Budget","Actual","Effective"],
+                             "Value": [budget, actual_spend, effective_spend]})
     fig_new1 = px.bar(spend_df, x="Type", y="Value", color="Type",
                       title="Budget vs Actual vs Effective Spend")
     st.plotly_chart(fig_new1, use_container_width=True)
 
     st.markdown("#### Forecast: Budget vs Actual Renewals (Cumulative)")
-    # Build forecast/renewals directly from ContractEndDate (quarter buckets)
     renewals_df = df.copy()
+    renewals_df["ContractEndDate"] = pd.to_datetime(renewals_df["ContractEndDate"], errors="coerce")
     renewals_df["Quarter"] = renewals_df["ContractEndDate"].dt.to_period("Q").astype(str)
-    renewals_value = renewals_df.groupby("Quarter").apply(lambda x: (x["EntitledLicenses"] * x["CostPerLicense"]).sum()).reset_index(name="ActualRenewals")
-    # Build a linear budget track by cumulative quarters
+    renewals_value = renewals_df.groupby("Quarter").apply(
+        lambda x: (x["EntitledLicenses"] * x["CostPerLicense"]).sum()
+    ).reset_index(name="ActualRenewals")
     q_order = sorted(renewals_value["Quarter"].unique())
-    q_budget = np.linspace(budget/len(q_order), budget, num=len(q_order))
-    forecast_df = pd.DataFrame({"Quarter": q_order, "Budget": q_budget, "ActualRenewals": renewals_value.set_index("Quarter").loc[q_order]["ActualRenewals"].values})
+    q_budget = np.linspace(budget/len(q_order), budget, num=len(q_order)) if len(q_order) else []
+    if len(q_order):
+        forecast_df = pd.DataFrame({
+            "Quarter": q_order,
+            "Budget": q_budget,
+            "ActualRenewals": renewals_value.set_index("Quarter").loc[q_order]["ActualRenewals"].values
+        })
+        fig_new2 = px.line(forecast_df, x="Quarter", y=["Budget","ActualRenewals"],
+                           markers=True, title="Budget vs Actual Renewal Forecast (Cumulative)")
+        st.plotly_chart(fig_new2, use_container_width=True)
+    else:
+        st.info("No upcoming renewals to forecast.")
 
-    fig_new2 = px.line(forecast_df, x="Quarter", y=["Budget","ActualRenewals"],
-                       markers=True, title="Budget vs Actual Renewal Forecast (Cumulative)")
-    st.plotly_chart(fig_new2, use_container_width=True)
-
-    # Renewal Calendar (timeline) from ContractEndDate (90-day window ending at contract end)
+    # Renewal Calendar (timeline)
     st.markdown("#### Renewal Calendar (Next 12 Months)")
-    # Aggregate by Vendor: take max value vendor slice
     next12 = pd.Timestamp.today().normalize() + pd.offsets.Day(365)
     cal = (df.loc[df["ContractEndDate"].between(pd.Timestamp.today().normalize(), next12)]
              .groupby(["Vendor","ContractEndDate"])
@@ -240,33 +260,29 @@ with tab2:
     st.divider()
     st.markdown("#### Original CXO Visuals")
 
-    # Spend Optimization (Pareto) using TotalCost = Entitled * CostPerLicense
     df_cost = df.copy()
     df_cost["TotalCost"] = df_cost["EntitledLicenses"] * df_cost["CostPerLicense"]
     spend_summary = df_cost.groupby("Vendor")[["TotalCost"]].sum().reset_index()
 
-    col1, col2 = st.columns(2)
-    with col1:
+    c5, c6 = st.columns(2)
+    with c5:
         fig_old1 = px.bar(spend_summary.sort_values("TotalCost", ascending=False),
                           x="Vendor", y="TotalCost", title="Top Vendors by Spend")
         st.plotly_chart(fig_old1, use_container_width=True)
-    with col2:
+    with c6:
         fig_old2 = px.pie(spend_summary, names="Vendor", values="TotalCost",
                           title="Spend Distribution by Vendor")
         st.plotly_chart(fig_old2, use_container_width=True)
 
-    # Compliance & Risk Exposure
     comp = df.groupby("Vendor")[["EntitledLicenses","ActualUsage","CostPerLicense"]].sum().reset_index()
     comp["OverUsage"] = comp["ActualUsage"] - comp["EntitledLicenses"]
-    # PenaltyRisk: per-unit hypothetical penalty if over-used
     comp["PenaltyRisk($)"] = comp["OverUsage"].apply(lambda x: max(0, x) * 200)
     comp["UnderUtilization"] = comp["EntitledLicenses"] - comp["ActualUsage"]
-    comp["WastedSpend($)"] = comp["UnderUtilization"].apply(lambda x: max(0, x)) * comp["CostPerLicense"]
+    comp["WastedSpend($)"] = comp["UnderUtilization"].clip(lower=0) * comp["CostPerLicense"]
     fig_old3 = px.bar(comp, x="Vendor", y=["PenaltyRisk($)", "WastedSpend($)"],
                       barmode="group", title="Compliance Risks & Wasted Spend by Vendor")
     st.plotly_chart(fig_old3, use_container_width=True)
 
-    # Adoption by Department
     st.markdown("#### Adoption by Function (Sample)")
     adoption_df = df.groupby("Department").apply(lambda x: (x["ActualUsage"] > 0).mean()*100).reset_index(name="AdoptionRate(%)")
     if adoption_df.empty:
@@ -281,13 +297,11 @@ with tab2:
 with tab3:
     st.subheader("Software Inventory & Security")
 
-    # Inventory Top Products
     inventory_summary = df.groupby("Product")["DeviceID"].count().reset_index(name="Installations")
     fig11 = px.bar(inventory_summary.sort_values("Installations", ascending=False).head(10),
                    x="Product", y="Installations", title="Top 10 Installed Products")
     st.plotly_chart(fig11, use_container_width=True)
 
-    # Security Exposure: Vulns vs EOL with bubble size by Installations & hover patch age
     sec = df.groupby("Vendor").agg(
         Installations=("DeviceID","count"),
         EOL_Count=("IsEOL","sum"),
@@ -307,7 +321,7 @@ with tab3:
     st.dataframe(df[cols_show].sample(min(50, len(df))))
 
 # ======================================================
-# TAB 4 — OPTIMIZATION & SAVINGS (scenario + real idle)
+# TAB 4 — OPTIMIZATION & SAVINGS (SAM + Cloud Analytics)
 # ======================================================
 with tab4:
     st.subheader("Optimization & Savings")
@@ -317,21 +331,17 @@ with tab4:
     by_vendor["ShelfwareSavings($)"] = by_vendor["UnusedLicenses"] * by_vendor["CostPerLicense"]
 
     total_shelfware = by_vendor["ShelfwareSavings($)"].sum()
-    base_downgrade_savings = 65000  # baseline; see below for dynamic add-on
+    base_downgrade_savings = 65000
     consolidation_savings = 40000
 
-    # Scenario sliders
-    st.markdown("#### Scenario Planning")
+    st.markdown("#### Scenario Planning (SAM)")
     rec_rate = st.slider("Reclaim % of shelfware", 0, 100, 40)
     dwn_rate = st.slider("Downgrade % of candidates", 0, 100, 30)
 
     scenario_shelfware = total_shelfware * (rec_rate / 100)
 
-    # Optional: dynamic downgrade candidates (example for Microsoft 365)
-    # Candidates: M365 + Edition E5/E3 with low usage -> downgrade to Standard
     if {"Vendor","Edition","ActualUsage","CostPerLicense"}.issubset(df.columns):
         m365 = df[(df["Vendor"] == "Microsoft 365") & (df["Edition"].isin(["E5","E3"])) & (df["ActualUsage"] <= 1)]
-        # Assume savings vs Standard: E5→Std ≈ 0.8 * base cost; E3→Std ≈ 0.4 * base cost (illustrative)
         savings_per = np.where(m365["Edition"]=="E5", 0.8*m365["CostPerLicense"], 0.4*m365["CostPerLicense"])
         potential_downgrade_savings = savings_per.sum()
     else:
@@ -347,7 +357,7 @@ with tab4:
     k4.metric("Consolidation Savings ($)", f"{consolidation_savings:,.0f}")
 
     fig13 = px.bar(by_vendor, x="Vendor", y="ShelfwareSavings($)",
-                   title="Shelfware Savings by Vendor (Baseline, before scenario)")
+                   title="Shelfware Savings by Vendor (Baseline)")
     st.plotly_chart(fig13, use_container_width=True)
 
     forecast_savings = pd.DataFrame({
@@ -358,7 +368,38 @@ with tab4:
                    title="Forecasted Optimization Savings (Scenario)")
     st.plotly_chart(fig14, use_container_width=True)
 
-    # Idle SaaS Licenses (>90 days) computed from LastUsedDays
+    # ---------- NEW: Cloud Analytics block ----------
+    st.markdown("### Cloud Analytics (Cloudability-style)")
+    st.caption("Modeled demo data to illustrate Cloudability-like insights")
+
+    # Commitment Discount Coverage (AWS/Azure/GCP)
+    coverage = pd.DataFrame({
+        "Cloud": ["AWS","Azure","GCP"],
+        "Discounted(%)": [68, 55, 62],
+        "OnDemand(%)": [32, 45, 38]
+    })
+    coverage_long = coverage.melt(id_vars="Cloud", var_name="Type", value_name="Percent")
+    fig_cov = px.bar(coverage_long, x="Cloud", y="Percent", color="Type", barmode="stack",
+                     title="Commitment Discount Coverage (Discounted vs On-Demand)")
+    st.plotly_chart(fig_cov, use_container_width=True)
+
+    # Rightsizing Recommendations (simulated cloud resources)
+    st.subheader("Rightsizing Recommendations")
+    rightsizing = pd.DataFrame({
+        "ResourceID": [f"res-{i:04d}" for i in range(1, 11)],
+        "Cloud": np.random.choice(["AWS","Azure","GCP"], 10),
+        "Service": np.random.choice(["Compute/VM","Database","Cache"], 10),
+        "Region": np.random.choice(["us-east-1","us-west-2","eu-west-1","ap-south-1"], 10),
+        "CurrentSize": np.random.choice(["m5.4xlarge","m5.2xlarge","m5.xlarge","db.r6g.2xlarge","n2-standard-8"], 10),
+        "RecommendedSize": np.random.choice(["m5.2xlarge","m5.xlarge","m5.large","db.r6g.xlarge","n2-standard-4"], 10),
+        "AvgCPU%": np.random.uniform(8, 28, 10).round(1),
+        "AvgMem%": np.random.uniform(12, 35, 10).round(1),
+        "MonthlySavings($)": np.random.randint(150, 1200, 10)
+    })
+    rightsizing = rightsizing.sort_values("MonthlySavings($)", ascending=False)
+    st.dataframe(rightsizing, use_container_width=True)
+
+    # Idle SaaS Licenses via LastUsedDays
     st.subheader(f"Idle SaaS Licenses (LastUsedDays ≥ {idle_threshold})")
     idle = (df[df["LastUsedDays"] >= idle_threshold]
               .groupby("Vendor")
@@ -371,30 +412,8 @@ with tab4:
     else:
         st.table(idle.sort_values("Savings Potential ($)", ascending=False))
 
-    # Downgrade opportunities table (example)
-    st.subheader("Downgrade Opportunities (Illustrative)")
-    recs = pd.DataFrame({
-        "Vendor": ["Microsoft 365","Adobe CC","Salesforce"],
-        "Recommendation": [
-            "Downgrade low-usage E5/E3 → Standard",
-            "Reclaim unused Single App seats → All Apps pool",
-            "Reassign inactive CRM Cloud seats"
-        ],
-        "Estimated Savings ($)": [int(max(30000, scenario_downgrade*0.6)), 15000, 20000]
-    })
-    st.table(recs)
-
-    # Vendor Consolidation
-    st.subheader("Vendor Consolidation Suggestions")
-    consolidation = pd.DataFrame({
-        "Overlap": ["Slack + Teams","Zoom + Google Meet"],
-        "Recommendation": ["Consolidate to Teams only","Consolidate to Zoom only"],
-        "Estimated Savings ($)": [25000, 15000]
-    })
-    st.table(consolidation)
-
 # ======================================================
-# TAB 5 — ACTIONABLE ITEMS (exportable)
+# TAB 5 — ACTIONABLE ITEMS
 # ======================================================
 with tab5:
     st.subheader("📝 Actionable Items")
@@ -406,7 +425,7 @@ with tab5:
             "Remove 30 unauthorized Adobe installs"
         ],
         "Priority": ["High","Medium"],
-        "Owner": ["Software Asset Management Team","IT Security"]
+        "Owner": ["SAM Team","IT Security"]
     })
     st.table(compliance_actions)
 
@@ -461,9 +480,5 @@ with tab5:
         ignore_index=True
     )
     actions_csv = all_actions.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "Download Actionable Items (CSV)",
-        data=actions_csv,
-        file_name="sam_actionable_items.csv",
-        mime="text/csv"
-    )
+    st.download_button("Download Actionable Items (CSV)", data=actions_csv,
+                       file_name="sam_actionable_items.csv", mime="text/csv")
